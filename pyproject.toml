@@ -25,9 +25,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/jlamendola/pywoddle"
-Repository = "https://github.com/jlamendola/pywoddle"
-Issues = "https://github.com/jlamendola/pywoddle/issues"
+Homepage = "https://github.com/jlamendo/pywoddle"
+Repository = "https://github.com/jlamendo/pywoddle"
+Issues = "https://github.com/jlamendo/pywoddle/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
