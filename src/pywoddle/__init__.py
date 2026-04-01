@@ -3,7 +3,14 @@
 from .auth import WoddleAuth
 from .client import WoddleClient
 from .exceptions import WoddleApiError, WoddleAuthError, WoddleError
-from .models import WoddleActivity, WoddleBaby, WoddleDevice, WoddleUserProfile
+from .models import (
+    WoddleActivity,
+    WoddleBaby,
+    WoddleDashboard,
+    WoddleDashboardActivity,
+    WoddleDevice,
+    WoddleUserProfile,
+)
 
 __all__ = [
     "WoddleAuth",
@@ -13,6 +20,8 @@ __all__ = [
     "WoddleError",
     "WoddleActivity",
     "WoddleBaby",
+    "WoddleDashboard",
+    "WoddleDashboardActivity",
     "WoddleDevice",
     "WoddleUserProfile",
 ]

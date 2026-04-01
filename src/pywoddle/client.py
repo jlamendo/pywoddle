@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
 
 from .auth import WoddleAuth
 from .const import WODDLE_ACTIVITY_BASE, WODDLE_API_V1
-from .exceptions import WoddleApiError, WoddleAuthError
+from .exceptions import WoddleApiError
 from .models import (
     WoddleActivity,
     WoddleBaby,
+    WoddleDashboard,
     WoddleDevice,
     WoddleUserProfile,
 )
@@ -28,23 +30,12 @@ class WoddleClient:
     """
 
     def __init__(self, auth: WoddleAuth) -> None:
-        """Initialize the client.
-
-        Args:
-            auth: Authenticated WoddleAuth instance.
-        """
         self.auth = auth
 
     async def _request(
-        self,
-        method: str,
-        url: str,
-        json: dict | None = None,
+        self, method: str, url: str, json: dict | None = None,
     ) -> Any:
-        """Make an authenticated API request.
-
-        Handles 401 by re-authenticating and retrying once.
-        """
+        """Make an authenticated API request with 401 retry."""
         await self.auth.ensure_valid_token()
         session = await self.auth.get_session()
         headers = self.auth.get_headers()
@@ -61,13 +52,11 @@ class WoddleClient:
                     ) as retry_resp:
                         return await self._handle_response(retry_resp)
                 return await self._handle_response(resp)
-
         except aiohttp.ClientError as err:
             raise WoddleApiError(f"Connection error: {err}") from err
 
     @staticmethod
     async def _handle_response(resp: aiohttp.ClientResponse) -> Any:
-        """Parse and validate an API response."""
         if resp.status >= 400:
             text = await resp.text()
             raise WoddleApiError(
@@ -101,18 +90,97 @@ class WoddleClient:
         details = data.get("details", {}) if isinstance(data, dict) else {}
         return WoddleUserProfile.from_api(details)
 
-    # ── Activity endpoints ──────────────────────────────────────────
+    # ── Dashboard & Activities ──────────────────────────────────────
+
+    async def fetch_dashboard(self, baby_id: str) -> WoddleDashboard:
+        """Fetch the dashboard for a baby.
+
+        Returns latest activity per type with activity_type_ids.
+        """
+        data = await self._request(
+            "GET", f"{WODDLE_ACTIVITY_BASE}/dashboard/{baby_id}"
+        )
+        return WoddleDashboard.from_api(data)
+
+    async def fetch_calendar(
+        self,
+        baby_id: str,
+        date: str | None = None,
+        tz: str = "America/Los_Angeles",
+    ) -> list[WoddleActivity]:
+        """Fetch all activities for a day with full details.
+
+        Args:
+            baby_id: Baby UUID.
+            date: Date string (YYYY-MM-DD). Defaults to today.
+            tz: Timezone name.
+        """
+        if date is None:
+            date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        data = await self._request(
+            "GET",
+            f"{WODDLE_ACTIVITY_BASE}/dashboard/{baby_id}/calendar"
+            f"?date={date}&timezone={tz}",
+        )
+        raw = data.get("activities", []) if isinstance(data, dict) else []
+        return [WoddleActivity.from_api(a) for a in raw]
+
+    async def fetch_history(
+        self, baby_id: str, activity_type_id: str
+    ) -> list[WoddleActivity]:
+        """Fetch activity history for a specific activity type.
+
+        Args:
+            baby_id: Baby UUID.
+            activity_type_id: UUID of the activity type (from dashboard).
+        """
+        data = await self._request(
+            "GET",
+            f"{WODDLE_ACTIVITY_BASE}/fetchHistory/{baby_id}/{activity_type_id}",
+        )
+        raw = data.get("activities", []) if isinstance(data, dict) else []
+        return [WoddleActivity.from_api(a) for a in raw]
 
     async def fetch_recent_activities(self) -> list[WoddleActivity]:
-        """Fetch recent activities from the user profile.
-
-        The /api/v1/user/profile endpoint returns the most recent
-        activities across all babies. This is the primary polling method.
-        """
+        """Fetch recent activities from the user profile (summary only)."""
         data = await self._request("GET", f"{WODDLE_API_V1}/user/profile")
         details = data.get("details", {}) if isinstance(data, dict) else {}
-        raw_activities = details.get("activities", [])
-        return [WoddleActivity.from_api(a) for a in raw_activities]
+        raw = details.get("activities", [])
+        return [WoddleActivity.from_api(a) for a in raw]
+
+    # ── Charts ──────────────────────────────────────────────────────
+
+    async def fetch_weight_chart(
+        self,
+        baby_id: str,
+        start_date: str,
+        end_date: str,
+        time_span: str = "day",
+        tz: str = "America/Los_Angeles",
+    ) -> dict:
+        """Fetch weight chart data for a date range."""
+        return await self._request(
+            "GET",
+            f"{WODDLE_ACTIVITY_BASE}/charts/{baby_id}/weight"
+            f"?timeSpan={time_span}&startDate={start_date}"
+            f"&endDate={end_date}&timezone={tz}",
+        )
+
+    async def fetch_feeding_chart(
+        self,
+        baby_id: str,
+        start_date: str,
+        end_date: str,
+        time_span: str = "day",
+        tz: str = "America/Los_Angeles",
+    ) -> dict:
+        """Fetch feeding chart data for a date range."""
+        return await self._request(
+            "GET",
+            f"{WODDLE_ACTIVITY_BASE}/charts/{baby_id}/feeding"
+            f"?timeSpan={time_span}&startDate={start_date}"
+            f"&endDate={end_date}&timezone={tz}",
+        )
 
     # ── Device endpoints ────────────────────────────────────────────
 
@@ -127,5 +195,4 @@ class WoddleClient:
     # ── Lifecycle ───────────────────────────────────────────────────
 
     async def close(self) -> None:
-        """Close the underlying auth session."""
         await self.auth.close()
